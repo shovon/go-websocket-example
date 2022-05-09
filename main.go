@@ -12,12 +12,19 @@ import (
 var upgrader = websocket.Upgrader{}
 
 const (
+	writeWait = 60 * time.Second
+
 	// Time allowed to read the next pong message from the peer.
 	pongWait = 60 * time.Second
 
 	// Send pings to peer with this period. Must be less than pongWait.
 	pingPeriod = (pongWait * 9) / 10
 )
+
+// So the idea is this:
+//
+// A read deadline is set every time we receive a pong. However, a read deadline
+// will also be set when the program first starts up.
 
 func main() {
 	r := mux.NewRouter()
@@ -30,6 +37,15 @@ func main() {
 			return
 		}
 		defer c.Close()
+
+		// Some bootstrapping.
+
+		c.SetReadLimit(2048)
+		c.SetReadDeadline(time.Now().Add(pongWait))
+		c.SetPongHandler(func(string) error {
+			c.SetReadDeadline(time.Now().Add(pongWait))
+			return nil
+		})
 
 		onClose := make(chan interface{})
 
@@ -48,13 +64,9 @@ func main() {
 		go func() {
 			ticker := time.Tick(time.Second * 50)
 
-			c.SetReadLimit(2048)
-			c.SetReadDeadline(time.Now().Add(pongWait))
-			c.SetPongHandler(func(string) error { c.SetReadDeadline(time.Now().Add(pongWait)); return nil })
-
 			for {
 				<-ticker
-
+				c.SetWriteDeadline(time.Now().Add(writeWait))
 			}
 		}()
 
